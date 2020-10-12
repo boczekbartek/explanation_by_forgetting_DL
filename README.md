@@ -1,5 +1,16 @@
 # kr_project2_explanation_by_forgetting
 
+## Prerequisites
+* Python >= 3.6
+* Java runtime
+* Bash terminal
+
+## Usage
+```bash
+python main.py
+```
+
+## Prof. desctiption
 This is a repository for a very simple code-base for the course Knowledge Representation 2020 of the Master AI.
  
 This repository provides a number of (partial) stand-alone versions of established programs (LETHE or the OWL-API) 
