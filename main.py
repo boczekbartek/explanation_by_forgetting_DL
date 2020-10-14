@@ -1,9 +1,14 @@
+from argparse import ArgumentError
 import os
 import subprocess
 from collections import defaultdict
 from typing import List
 import shutil
 from pprint import pprint
+import argparse
+import random
+
+random.seed(22)
 
 
 def run_cmd(cmd):
@@ -42,9 +47,8 @@ def get_all_subclasses(ontology: str, workdir: str, out: str):
     out: str
         Output file for subclasses
     """
-    os.system(f"java -jar kr_functions.jar saveAllSubClasses {ontology}")
-    os.rename(f"{workdir}/subClasses.nt", out)
-    os.system(f"sort -u {out} > {out}.u")
+    os.system(f"java -jar kr_functions.jar saveAllSubClasses {ontology} 2>/dev/null")
+    os.system(f"sort -u {workdir}/subClasses.nt > {out}")
 
 
 def run_forgetter(
@@ -65,8 +69,7 @@ def run_forgetter(
         Method for LETHE: 1 - ALCHTBoxForgetter, 2 - SHQTBoxForgetter, 3 - ALCOntologyForgetter
     """
     cmd = f"java -cp lethe-standalone.jar uk.ac.man.cs.lethe.internal.application.ForgettingConsoleApplication --owlFile {ontology} --method {method} --signature {symbols_fname}"
-    # print(cmd)
-    run_cmd(cmd)
+    os.system(cmd)
     os.rename("result.owl", out_fname)
 
 
@@ -85,7 +88,7 @@ def explain(ontology: str, subclass_statement: str, expl_f: str, workdir: str) -
     workdir: str
         Working directory
     """
-    cmd = f"java -jar kr_functions.jar saveAllExplanations {ontology} {subclass_statement}"
+    cmd = f"java -jar kr_functions.jar saveAllExplanations {ontology} {subclass_statement} 2>/dev/null"
     os.system(cmd)
     if not os.path.exists('f"{workdir}/exp-1.omn"'):
         os.rename(f"{workdir}/exp-1.omn", expl_f)
@@ -103,7 +106,13 @@ def wc_l(fname: str) -> int:
 
 
 def explain_by_forgetting(
-    my_entailment_f: str, ontology: str, method, workdir: str = ""
+    my_entailment_f: str,
+    ontology: str,
+    method: str,
+    prefix: str,
+    nforget: int,
+    sel_method: str,
+    workdir: str = "",
 ):
     """ 
     Explain entailment by sequence of forgetting. Forget most occurrent subclass each step. 
@@ -124,8 +133,8 @@ def explain_by_forgetting(
     it = 0
     with open(my_entailment_f) as fd:
         my_entailment = fd.read()
-    not_forget_s1 = my_entailment.split(">")[0].split("/")[-1]
-    not_forget_s2 = my_entailment.split(">")[2].split("/")[-1]
+    not_forget_s1 = my_entailment.split(">")[0].split("/")[-1]  # Cajun
+    not_forget_s2 = my_entailment.split(">")[2].split("/")[-1]  # Food
     first_ontology = f"{workdir}/{it}ontology.owl"
     shutil.copyfile(ontology, first_ontology)
 
@@ -133,7 +142,7 @@ def explain_by_forgetting(
     get_all_subclasses(first_ontology, workdir, subclasses_f)
     print(f"Subcls: {subclasses_f}")
     counter = create_freq_index(subclasses_f)
-    while len(counter) != 1:
+    while len(counter) > 2:
         cur_ontology = f"{workdir}/{it}ontology.owl"
         print(f"Iteration {it}, symbols: {len(counter)}")
         # get most frequent symbol
@@ -145,7 +154,6 @@ def explain_by_forgetting(
         counter = {
             k: v for k, v in counter.items() if k not in (not_forget_s1, not_forget_s2)
         }
-        print(counter)
 
         # # get explanation for this step
         expl_f = f"{workdir}/{it}exp.omn"
@@ -160,16 +168,21 @@ def explain_by_forgetting(
             k: v for k, v in counter.items() if k not in (not_forget_s1, not_forget_s2)
         }
 
-        print(counter)
-        freqs = sorted(counter.items(), key=lambda it: it[1], reverse=True)[0:1]
-        symbols = [x[0] for x in freqs]
-
+        if sel_method == "most_freq":
+            freqs = sorted(counter.items(), key=lambda it: it[1], reverse=True)[
+                0:nforget
+            ]
+            symbols = [x[0] for x in freqs]
+        elif sel_method == "random":
+            symbols = random.sample(list(counter.keys()), nforget)
+        else:
+            ArgumentError(f"Method not suupported: {method}")
         # prepare for forgetting
         symbols_f = f"{workdir}/{it}symbols.txt"
         with open(symbols_f, "wt") as fd:
             for s in symbols:
                 # TODO this is sstupi hardcode, this should be derived from ontology, works only for pizza_super_simple.owl
-                print(f"http://www.co-ode.org/ontologies/pizza/{s}", file=fd)
+                print(f"{prefix}{s}", file=fd)
 
         next_ontology = f"{workdir}/{it+1}ontology.owl"
         print(
@@ -189,15 +202,33 @@ def explain_by_forgetting(
 
 
 if __name__ == "__main__":
-    ontology = "datasets/pizza_super_simple.owl"
-    m = "3"
-    workdir = f"pizza_lethe_{m}"
+    # ontology = "datasets/pizza_super_simple.owl"
+    p = argparse.ArgumentParser()
+    p.add_argument("nforget", type=int)
+    p.add_argument("--method", required=True, choices=("most_freq", "random"), type=str)
+
+    ontology = "./cell_ontology/ontology/cl.owl"
+    m = "1"
+    args = p.parse_args()
+    nforget = args.nforget
+    method = args.method
+    workdir = f"./cell_ontology/workdir_{nforget}_{method}"
     os.makedirs(workdir, exist_ok=True)
 
     # This is the entailment we want to explain
-    my_entailment = "<http://www.co-ode.org/ontologies/pizza/pizza.owl#Cajun> <http://www.w3.org/2000/01/rdf-schema#subClassOf>  <http://www.co-ode.org/ontologies/pizza/pizza.owl#Food> ."
+    # my_entailment = "<http://www.co-ode.org/ontologies/pizza/pizza.owl#Cajun> <http://www.w3.org/2000/01/rdf-schema#subClassOf>  <http://www.co-ode.org/ontologies/pizza/pizza.owl#Food> ."
+    my_entailment = "<http://purl.obolibrary.org/obo/CL_0002115> <http://www.w3.org/2000/01/rdf-schema#subClassOf>  <http://purl.obolibrary.org/obo/CL_0000255> ."
     my_entailment_f = f"{workdir}/my_entailment.nt"
     with open(my_entailment_f, "wt") as fd:
         print(my_entailment, file=fd)
 
-    counter = explain_by_forgetting(my_entailment_f, ontology, m, workdir)
+    counter = explain_by_forgetting(
+        my_entailment_f,
+        ontology,
+        method=m,
+        prefix="http://purl.obolibrary.org/obo/",
+        workdir=workdir,
+        nforget=nforget,
+        sel_method=method,
+    )
+
