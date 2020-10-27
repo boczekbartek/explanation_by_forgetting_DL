@@ -2,6 +2,7 @@
 
 ## Prerequisites
 * Python >= 3.6
+* python tqdm (```pip install tqdm```)
 * Java runtime
 * Bash terminal
 
